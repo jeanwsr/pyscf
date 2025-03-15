@@ -339,14 +339,13 @@ def get_jk(dfobj, dm, hermi=0, with_j=True, with_k=True, direct_scf_tol=1e-13):
                     vk[k] += lib.dot(buf1.T, buf1)
             t1 = log.timer_debug1('jk', *t1)
     else:
-        #:vk = numpy.einsum('pij,jk->pki', cderi, dm)
-        #:vk = numpy.einsum('pki,pkj->ij', cderi, vk)
-        rargs = (ctypes.c_int(nao), (ctypes.c_int*4)(0, nao, 0, nao),
-                 null, ctypes.c_int(0))
-        dms = [numpy.asarray(x, order='F') for x in dms]
+        from pyscf.df.grad.rhf import _decompose_rdm1_svd
+        orbol, orbor = _decompose_rdm1_svd (None, dfobj.mol, dms)
+
         max_memory = dfobj.max_memory - lib.current_memory()[0]
-        blksize = max(4, int(min(dfobj.blockdim, max_memory*.22e6/8/nao**2)))
-        buf = numpy.empty((2,blksize,nao,nao))
+        blksize = max(4, int(min(dfobj.blockdim, max_memory*.3e6/8/nao**2)))
+        bufl = numpy.empty((blksize*nao,nao))
+        bufr = numpy.empty((blksize*nao,nao))
         for eri1 in dfobj.loop(blksize):
             naux, nao_pair = eri1.shape
             assert (nao_pair == nao*(nao+1)//2)
@@ -355,15 +354,51 @@ def get_jk(dfobj, dm, hermi=0, with_j=True, with_k=True, direct_scf_tol=1e-13):
                 vj += dmtril.dot(eri1.T).dot(eri1)
 
             for k in range(nset):
-                buf1 = buf[0,:naux]
-                fdrv(ftrans, fmmm,
-                     buf1.ctypes.data_as(ctypes.c_void_p),
-                     eri1.ctypes.data_as(ctypes.c_void_p),
-                     dms[k].ctypes.data_as(ctypes.c_void_p),
-                     ctypes.c_int(naux), *rargs)
+                nocc = orbol[k].shape[1]
+                #print('nocc', nocc)
+                if nocc > 0:
+                    buf1l = bufl[:naux*nocc]
+                    fdrv(ftrans, fmmm,
+                         buf1l.ctypes.data_as(ctypes.c_void_p),
+                         eri1.ctypes.data_as(ctypes.c_void_p),
+                         orbol[k].ctypes.data_as(ctypes.c_void_p),
+                         ctypes.c_int(naux), ctypes.c_int(nao),
+                         (ctypes.c_int*4)(0, nocc, 0, nao),
+                         null, ctypes.c_int(0))
+                    buf1r = bufr[:naux*nocc]
+                    fdrv(ftrans, fmmm,
+                         buf1r.ctypes.data_as(ctypes.c_void_p),
+                         eri1.ctypes.data_as(ctypes.c_void_p),
+                         orbor[k].ctypes.data_as(ctypes.c_void_p),
+                         ctypes.c_int(naux), ctypes.c_int(nao),
+                         (ctypes.c_int*4)(0, nocc, 0, nao),
+                         null, ctypes.c_int(0))
+                    vk[k] += lib.dot(buf1l.T, buf1r)
+        #:vk = numpy.einsum('pij,jk->pki', cderi, dm)
+        #:vk = numpy.einsum('pki,pkj->ij', cderi, vk)
+        # rargs = (ctypes.c_int(nao), (ctypes.c_int*4)(0, nao, 0, nao),
+        #          null, ctypes.c_int(0))
+        # dms = [numpy.asarray(x, order='F') for x in dms]
+        # max_memory = dfobj.max_memory - lib.current_memory()[0]
+        # blksize = max(4, int(min(dfobj.blockdim, max_memory*.22e6/8/nao**2)))
+        # buf = numpy.empty((2,blksize,nao,nao))
+        # for eri1 in dfobj.loop(blksize):
+        #     naux, nao_pair = eri1.shape
+        #     assert (nao_pair == nao*(nao+1)//2)
+        #     if with_j:
+        #         # uses numpy.matmul
+        #         vj += dmtril.dot(eri1.T).dot(eri1)
 
-                buf2 = lib.unpack_tril(eri1, out=buf[1])
-                vk[k] += lib.dot(buf1.reshape(-1,nao).T, buf2.reshape(-1,nao))
+        #     for k in range(nset):
+        #         buf1 = buf[0,:naux]
+        #         fdrv(ftrans, fmmm,
+        #              buf1.ctypes.data_as(ctypes.c_void_p),
+        #              eri1.ctypes.data_as(ctypes.c_void_p),
+        #              dms[k].ctypes.data_as(ctypes.c_void_p),
+        #              ctypes.c_int(naux), *rargs)
+
+        #         buf2 = lib.unpack_tril(eri1, out=buf[1])
+        #         vk[k] += lib.dot(buf1.reshape(-1,nao).T, buf2.reshape(-1,nao))
             t1 = log.timer_debug1('jk', *t1)
 
     if with_j: vj = lib.unpack_tril(vj, 1).reshape(dm_shape)
