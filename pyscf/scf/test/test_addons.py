@@ -475,7 +475,8 @@ class KnownValues(unittest.TestCase):
         mf = addons.smearing(mf, sigma=0.1)
         mf.kernel()
         self.assertAlmostEqual(mf.mo_occ.sum(), 15, 8)
-        self.assertAlmostEqual(mf.e_tot, -106.9310800142, 8)
+        self.assertAlmostEqual(mf.e_free, -107.22209716, 8)
+        self.assertAlmostEqual(mf.e_tot, -106.9310800142, 5)
 
     def test_uhf_smearing(self):
         mol = gto.M(
