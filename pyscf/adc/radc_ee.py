@@ -769,7 +769,37 @@ def get_imds(adc, eris=None):
 
     M_ab = M_ab.reshape(n_singles, n_singles)
 
+    if adc.dh:
+        # DH-ADC(2) effective singles block (Mester & Kallay, JCTC 2019,
+        # 15, 4440, eq 17): replace the CIS part of the ADC(2) matrix by the
+        # TDA singles block of the double-hybrid functional (A^DH, eq 5) and
+        # scale the second-order correction A^[2] by alpha_C.
+        alpha_c = adc.get_alpha_c()
+        A_dh = get_a_dh(adc, eris)
+
+        M_cis = np.zeros((ncore*nextern, ncore*nextern))
+        np.fill_diagonal(M_cis, d_ai_a.transpose().reshape(-1))
+        M_cis = M_cis.reshape(ncore,nextern,ncore,nextern).copy()
+        M_cis -= einsum('ILAD->IDLA', v_ccee, optimize = einsum_type).copy()
+        M_cis += 2 * einsum('LADI->IDLA', v_ceec, optimize = einsum_type).copy()
+        M_cis = M_cis.reshape(n_singles, n_singles)
+
+        M_ab = A_dh + alpha_c * (M_ab - M_cis)
+
     return M_ab
+
+
+def get_a_dh(adc, eris=None):
+    '''Singles (1p1h) block of the TDA matrix of the double-hybrid functional,
+    i.e. A^DH of eq 5 of Mester & Kallay, JCTC 2019, 15, 4440, built with
+    pyscf's TDDFT machinery on the Kohn-Sham orbitals of the reference.'''
+    if not adc.dh:
+        raise NotImplementedError('get_a_dh is only defined for dh-adc(2)')
+    from pyscf.tdscf import rhf as tdscf_rhf
+    mf = adc._scf
+    A, _B = tdscf_rhf.get_ab(mf, frozen=adc.frozen)
+    n_singles = adc._nocc * adc._nvir
+    return np.asarray(A).reshape(n_singles, n_singles)
 
 
 def get_diag(adc,M_ab=None,eris=None):
@@ -858,6 +888,14 @@ def matvec(adc, M_ab=None, eris=None):
     e_core = adc.mo_energy[:nocc].copy()
     e_extern = adc.mo_energy[nocc:].copy()
 
+    # For dh-adc(2) the 1p1h <-> 2p2h coupling is scaled by sqrt(alpha_C) so
+    # that the folded singles equation reproduces eq 17 of Mester & Kallay,
+    # JCTC 2019, 15, 4440, i.e. alpha_C * B (D - w)^{-1} B^T.
+    if adc.dh:
+        couple_fac = np.sqrt(adc.get_alpha_c())
+    else:
+        couple_fac = 1.0
+
     #Calculate sigma vector
 
     def sigma_(r):
@@ -884,28 +922,28 @@ def matvec(adc, M_ab=None, eris=None):
                 M_11Y0[:,a:b,:,:] += einsum('Ia,JDaC->IJCD', Y, v_ceee, optimize = einsum_type)
                 M_11Y0[a:b,:,:,:] += einsum('Ja,ICaD->IJCD', Y, v_ceee, optimize = einsum_type)
 
-                s[s1:f1] += -einsum('Iiab,iabD->ID', r2[:,a:b,:,:], v_ceee, optimize = einsum_type).reshape(-1)
-                s[s1:f1] += 2*einsum('Iiab,ibDa->ID', r2[:,a:b,:,:], v_ceee, optimize = einsum_type).reshape(-1)
+                s[s1:f1] += -couple_fac * einsum('Iiab,iabD->ID', r2[:,a:b,:,:], v_ceee, optimize = einsum_type).reshape(-1)
+                s[s1:f1] += 2*couple_fac * einsum('Iiab,ibDa->ID', r2[:,a:b,:,:], v_ceee, optimize = einsum_type).reshape(-1)
                 del v_ceee
-            s[s2:f2] += M_11Y0.reshape(-1)
+            s[s2:f2] += couple_fac * M_11Y0.reshape(-1)
             del M_11Y0
         else:
             v_ceee = radc_ao2mo.unpack_eri_1(eris.ovvv, nvir)
             M_11Y0 = einsum('Ia,JDaC->IJCD', Y, v_ceee, optimize = einsum_type)
             M_11Y0 += einsum('Ja,ICaD->IJCD', Y, v_ceee, optimize = einsum_type)
-            s[s2:f2] += M_11Y0.reshape(-1)
+            s[s2:f2] += couple_fac * M_11Y0.reshape(-1)
 
             M_01Y1 = -einsum('Iiab,iabD->ID', r2, v_ceee, optimize = einsum_type)
             M_01Y1 += 2*einsum('Iiab,ibDa->ID', r2, v_ceee, optimize = einsum_type)
-            s[s1:f1] += M_01Y1.reshape(-1)
+            s[s1:f1] += couple_fac * M_01Y1.reshape(-1)
             del M_11Y0
             del M_01Y1
 
-        s[s2:f2] -= einsum('iC,JDIi->IJCD', Y, v_cecc, optimize = einsum_type).reshape(-1)
-        s[s2:f2] -= einsum('iD,ICJi->IJCD', Y, v_cecc, optimize = einsum_type).reshape(-1)
+        s[s2:f2] -= couple_fac * einsum('iC,JDIi->IJCD', Y, v_cecc, optimize = einsum_type).reshape(-1)
+        s[s2:f2] -= couple_fac * einsum('iD,ICJi->IJCD', Y, v_cecc, optimize = einsum_type).reshape(-1)
 
-        s[s1:f1] -= 2*einsum('ijDa,jaiI->ID', r2, v_cecc, optimize = einsum_type).reshape(-1)
-        s[s1:f1] += einsum('ijDa,iajI->ID', r2, v_cecc, optimize = einsum_type).reshape(-1)
+        s[s1:f1] -= 2*couple_fac * einsum('ijDa,jaiI->ID', r2, v_cecc, optimize = einsum_type).reshape(-1)
+        s[s1:f1] += couple_fac * einsum('ijDa,iajI->ID', r2, v_cecc, optimize = einsum_type).reshape(-1)
 
         if (adc.method == "adc(2)-x") or (adc.method == "adc(3)"):
             Y = r2
@@ -1098,6 +1136,11 @@ def matvec(adc, M_ab=None, eris=None):
 
 
 def get_trans_moments(adc):
+
+    if adc.dh:
+        raise NotImplementedError(
+            'Transition moments are not implemented for dh-adc(2); '
+            'only excitation energies are available')
 
     U = renormalize_eigenvectors(adc)
 
@@ -1523,7 +1566,7 @@ def analyze(myadc):
 
     myadc.analyze_eigenvector()
 
-    if myadc.compute_properties:
+    if myadc.compute_properties and myadc.P is not None:
 
         header = (
             "\n*************************************************************"
@@ -1914,7 +1957,8 @@ class RADCEE(radc.RADC):
         incore_complete : bool
             Avoid all I/O. Default is False.
         method : string
-            nth-order ADC method. Options are : ADC(2), ADC(2)-X, ADC(3). Default is ADC(2).
+            nth-order ADC method. Options are : ADC(2), ADC(2)-X, ADC(3),
+            DH-ADC(2). Default is ADC(2).
         conv_tol : float
             Convergence threshold for Davidson iterations.  Default is 1e-8.
         max_cycle : int
@@ -1951,7 +1995,7 @@ class RADCEE(radc.RADC):
         'nocc', 'nvir', 'nmo', 'mol', 'transform_integrals',
         'with_df', 'dip_mom','spec_factor_print_tol', 'evec_print_tol',
         'compute_properties', 'approx_trans_moments', 'E', 'U', 'P', 'X',
-        '_make_rdm1', 'frozen', 'mo_occ'
+        '_make_rdm1', 'frozen', 'mo_occ', 'dh', 'alpha_c'
     }
 
     def __init__(self, adc):
@@ -1990,6 +2034,8 @@ class RADCEE(radc.RADC):
         self.spec_factor_print_tol = adc.spec_factor_print_tol
         self.frozen = adc.frozen
         self.mo_occ = adc.mo_occ
+        self.dh = adc.dh
+        self.alpha_c = adc.alpha_c
         self._adc_es = self
 
     kernel = radc.kernel

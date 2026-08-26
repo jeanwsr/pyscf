@@ -1280,7 +1280,7 @@ class RADCIPCVS(radc.RADC):
         'nmo', 'transform_integrals', 'with_df', 'compute_properties',
         'approx_trans_moments', 'E', 'U', 'P', 'X',
         'evec_print_tol', 'spec_factor_print_tol', 'ncvs',
-        '_make_rdm1', 'frozen', 'mo_occ'
+        '_make_rdm1', 'frozen', 'mo_occ', 'dh', 'alpha_c'
     }
 
     def __init__(self, adc):
@@ -1319,6 +1319,8 @@ class RADCIPCVS(radc.RADC):
         self.ncvs = adc.ncvs
         self.frozen = adc.frozen
         self.mo_occ = adc.mo_occ
+        self.alpha_c = adc.alpha_c
+        self.dh = adc.dh
         self._adc_es = self
 
     kernel = radc.kernel

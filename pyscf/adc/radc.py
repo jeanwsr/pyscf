@@ -30,6 +30,7 @@ from pyscf.adc import radc_ao2mo
 from pyscf.adc import radc_amplitudes
 from pyscf import __config__
 from pyscf import df
+from pyscf import scf
 from pyscf.mp import mp2
 from pyscf.data.nist import HARTREE2EV
 
@@ -40,6 +41,9 @@ def kernel(adc, nroots=1, guess=None, eris=None, verbose=None):
     adc.method = adc.method.lower()
     if adc.method not in ("adc(2)", "adc(2)-x", "adc(3)"):
         raise NotImplementedError(adc.method)
+    adc._check_reference()
+    if adc.dh:
+        adc.get_alpha_c()
 
     cput0 = (logger.process_clock(), logger.perf_counter())
     log = logger.Logger(adc.stdout, adc.verbose)
@@ -83,9 +87,13 @@ def kernel(adc, nroots=1, guess=None, eris=None, verbose=None):
 
     adc.U = np.array(U).T.copy()
 
-    if adc.compute_properties:
-        adc.P,adc.X = adc.get_properties(nroots)
+    if adc.compute_properties and not adc.dh:
+        adc.P, adc.X = adc.get_properties(nroots)
     else:
+        if adc.dh and adc.compute_properties:
+            logger.info(adc,
+                        'Transition moments are not implemented for dh-adc(2); '
+                        'returning P = X = None')
         adc.P = None
         adc.X = None
 
@@ -103,12 +111,13 @@ def kernel(adc, nroots=1, guess=None, eris=None, verbose=None):
     logger.info(adc, header)
 
     for n in range(nroots):
+        method_label = 'dh-adc(2)' if adc.dh else adc.method
         print_string = ('%s root %d  |  Energy (Eh) = %14.10f  |  Energy (eV) = %12.8f  ' %
-                        (adc.method, n, adc.E[n], adc.E[n]*HARTREE2EV))
-        if adc.compute_properties and adc.method_type != "ee":
+                        (method_label, n, adc.E[n], adc.E[n]*HARTREE2EV))
+        if adc.compute_properties and adc.P is not None and adc.method_type != "ee":
             print_string += ("|  Spec. factor = %10.8f  " % adc.P[n])
 
-        if adc.compute_properties and adc.method_type == "ee":
+        if adc.compute_properties and adc.P is not None and adc.method_type == "ee":
             print_string += ("|  Osc. strength = %10.8f  " % adc.P[n])
         print_string += ("|  conv = %s" % conv[n])
         logger.info(adc, print_string)
@@ -229,6 +238,23 @@ def get_frozen_mask(adc):
     return moidx
 
 
+def _get_alpha_c(mf):
+    '''Derive the correlation-scaling parameter alpha_C of a double-hybrid
+    functional from its semilocal correlation coefficient c_C, i.e.
+    alpha_C = 1 - c_C.  For PBE0-2 (xc = '0.5*HF + 0.5*PBE') this yields
+    alpha_C = 0.5.'''
+    from pyscf.dft import libxc
+    fn_facs = libxc.parse_xc(mf.xc)[1]
+    xc_id2name = {int(b): a for a, b in libxc.XC_CODES.items()
+                  if isinstance(b, (int, np.integer)) or str(b).isdigit()}
+    c_corr = 0.0
+    for fid, fac in fn_facs:
+        name = xc_id2name.get(int(fid), '')
+        if '_C_' in name:
+            c_corr += fac
+    return 1.0 - c_corr
+
+
 class RADC(lib.StreamObject):
     '''Ground state calculations
 
@@ -240,7 +266,8 @@ class RADC(lib.StreamObject):
         incore_complete : bool
             Avoid all I/O. Default is False.
         method : string
-            nth-order ADC method. Options are : ADC(2), ADC(2)-X, ADC(3). Default is ADC(2).
+            nth-order ADC method. Options are : ADC(2), ADC(2)-X, ADC(3),
+            DH-ADC(2). Default is ADC(2).
         frozen : None, int or iterables
             Specifies frozen orbitals.
             If an integer is provided, the lowest-energy orbitals are frozen.
@@ -274,13 +301,11 @@ class RADC(lib.StreamObject):
         'scf_energy', 'e_tot', 't1', 't2', 'frozen', 'chkfile',
         'max_space', 'mo_occ', 'max_cycle', 'imds', 'with_df', 'compute_properties',
         'approx_trans_moments', 'evec_print_tol', 'spec_factor_print_tol',
-        'E', 'U', 'P', 'X', 'ncvs', 'dip_mom', 'dip_mom_nuc', 'if_heri_eris'
+        'E', 'U', 'P', 'X', 'ncvs', 'dip_mom', 'dip_mom_nuc', 'if_heri_eris',
+        'dh', 'alpha_c'
     }
 
     def __init__(self, mf, frozen=None, mo_coeff=None, mo_occ=None):
-
-        if 'dft' in str(mf.__module__):
-            raise NotImplementedError('DFT reference for UADC')
 
         if mo_coeff is None:
             mo_coeff = mf.mo_coeff
@@ -345,6 +370,8 @@ class RADC(lib.StreamObject):
         self.chkfile = mf.chkfile
         self.method = "adc(2)"
         self.method_type = "ip"
+        self.dh = False
+        self.alpha_c = None
         self.with_df = None
         self.compute_properties = True
         self.approx_trans_moments = False
@@ -376,6 +403,31 @@ class RADC(lib.StreamObject):
     make_ref_rdm1 = make_ref_rdm1
     get_frozen_mask = get_frozen_mask
 
+    def _check_reference(self):
+        '''Validate the method/reference combination.  DFT (Kohn-Sham)
+        references are only supported for dh-adc(2), and dh is only defined
+        for EE-ADC(2).'''
+        is_dft = isinstance(self._scf, scf.hf.KohnShamDFT)
+        if self.dh:
+            if not is_dft:
+                raise NotImplementedError(
+                    'DH-ADC(2) (dh=True) requires a Kohn-Sham DFT reference '
+                    '(e.g. dft.RKS with a double-hybrid functional)')
+            if self.method != 'adc(2)' or self.method_type != 'ee':
+                raise NotImplementedError(
+                    'DH-ADC(2) (dh=True) is only supported for EE-ADC(2)')
+        elif is_dft:
+            raise NotImplementedError(
+                'DFT reference for ADC is only supported with dh=True')
+
+    def get_alpha_c(self):
+        '''Correlation-scaling parameter alpha_C of the DH-ADC(2) method.
+        Defaults to 1 - c_C, with c_C the semilocal correlation coefficient
+        of the double-hybrid functional, unless explicitly set by the user.'''
+        if self.alpha_c is None:
+            self.alpha_c = _get_alpha_c(self._scf)
+        return self.alpha_c
+
     def dump_flags(self, verbose=None):
         logger.info(self, '')
         logger.info(self, '******** %s ********', self.__class__)
@@ -400,6 +452,9 @@ class RADC(lib.StreamObject):
         self.method = self.method.lower()
         if self.method not in ("adc(2)", "adc(2)-x", "adc(3)"):
             raise NotImplementedError(self.method)
+        self._check_reference()
+        if self.dh:
+            self.get_alpha_c()
 
         if self.verbose >= logger.WARN:
             self.check_sanity()
@@ -453,6 +508,9 @@ class RADC(lib.StreamObject):
         self.method = self.method.lower()
         if self.method not in ("adc(2)", "adc(2)-x", "adc(3)"):
             raise NotImplementedError(self.method)
+        self._check_reference()
+        if self.dh:
+            self.get_alpha_c()
 
         if self.verbose >= logger.WARN:
             self.check_sanity()
@@ -522,8 +580,13 @@ class RADC(lib.StreamObject):
 
     def _finalize(self):
         '''Hook for dumping results and clearing up the object.'''
-        logger.note(self, 'MP%s correlation energy of reference state (a.u.) = %.8f',
-                    self.method[4], self.e_corr)
+        if self.dh:
+            logger.note(self,
+                        'DH-ADC(2) correlation energy of reference state (a.u.) = %.8f',
+                        self.e_corr)
+        else:
+            logger.note(self, 'MP%s correlation energy of reference state (a.u.) = %.8f',
+                        self.method[4], self.e_corr)
         return self
 
     def ea_adc(self, nroots=1, guess=None, eris=None):

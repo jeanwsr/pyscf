@@ -1359,7 +1359,7 @@ class RADCIP(radc.RADC):
         'nmo', 'transform_integrals', 'with_df', 'compute_properties',
         'approx_trans_moments', 'E', 'U', 'P', 'X',
         'evec_print_tol', 'spec_factor_print_tol', 'frozen'
-        '_make_rdm1', 'mo_occ'
+        '_make_rdm1', 'mo_occ', 'dh', 'alpha_c'
     }
 
     def __init__(self, adc):
@@ -1391,6 +1391,8 @@ class RADCIP(radc.RADC):
         self.approx_trans_moments = adc.approx_trans_moments
         self.frozen = adc.frozen
         self.mo_occ = adc.mo_occ
+        self.alpha_c = adc.alpha_c
+        self.dh = adc.dh
 
         self.evec_print_tol = adc.evec_print_tol
         self.spec_factor_print_tol = adc.spec_factor_print_tol

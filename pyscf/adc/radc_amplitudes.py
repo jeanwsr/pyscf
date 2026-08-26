@@ -81,8 +81,11 @@ def compute_amplitudes(myadc, eris):
 
     t1_2 = None
 
-    if myadc.approx_trans_moments is False or myadc.method == "adc(3)":
-        # Compute second-order singles t1 (tij)
+    if (myadc.approx_trans_moments is False or myadc.method == "adc(3)") \
+            and not myadc.dh:
+        # Compute second-order singles t1 (tij).  For dh-adc(2) the singles
+        # amplitudes do not enter the effective Jacobian (Mester & Kallay,
+        # JCTC 2019, 15, 4440), so they are skipped.
         t1_2 = np.zeros((nocc,nvir))
 
         if isinstance(eris.ovvv, type(None)):
@@ -521,6 +524,11 @@ def compute_energy(myadc, t2, eris):
 
     e_mp = 2 * lib.einsum('ijab,iabj', t2_new, eris_ovvo,optimize=True)
     e_mp -= lib.einsum('ijab,ibaj', t2_new, eris_ovvo,optimize=True)
+
+    if myadc.dh:
+        # The PT2 correlation energy is scaled by alpha_C in DH-ADC(2)
+        # (Mester & Kallay, JCTC 2019, 15, 4440, eq 2).
+        e_mp = myadc.get_alpha_c() * e_mp
 
     logger.info(myadc, "Reference correlation energy (doubles): %.8f", e_mp)
 
