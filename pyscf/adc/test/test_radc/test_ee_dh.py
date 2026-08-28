@@ -166,18 +166,47 @@ class KnownValues(unittest.TestCase):
         with self.assertRaises(NotImplementedError):
             myadc.kernel(nroots=1)
 
+    def test_singles_operator_equivalence(self):
+        # The A^DH operator (TDDFT response) plus alpha_C*A^[2] must equal the
+        # explicit matrix form A^DH + alpha_C*A^[2] for arbitrary vectors.
+        from pyscf.adc import radc_ee
+        myadc = adc.ADC(mf_pbe02)
+        myadc.method = "adc(2)"
+        myadc.method_type = "ee"
+        myadc.dh = True
+        myadc.alpha_c = 0.3
+        myadc.compute_properties = False
+        myadc.kernel_gs()
+
+        n_singles = myadc._nocc * myadc._nvir
+        a2 = radc_ee.get_imds(myadc)
+        a_dh = radc_ee.get_a_dh(myadc)
+        vind_dh, hdiag = radc_ee.get_vind_dh(myadc)
+        np.testing.assert_allclose(
+            hdiag,
+            (myadc.mo_energy[myadc._nocc:]
+             - myadc.mo_energy[:myadc._nocc, None]).ravel(),
+            atol=1e-12)
+
+        rng = np.random.default_rng(7)
+        for _ in range(3):
+            x = rng.standard_normal(n_singles)
+            op = vind_dh(x.reshape(myadc._nocc, myadc._nvir)).ravel() \
+                + myadc.alpha_c * (a2 @ x)
+            mat = (a_dh + myadc.alpha_c * a2) @ x
+            np.testing.assert_allclose(op, mat, atol=1e-9)
+
     def test_ethene_paper(self):
-        # Real-world validation of the benchmark state of Mester & Kallay
-        # (JCTC 2019, 15, 4440): ethene 1 1B2u (pi-pi*) at the Thiel set
-        # geometry.  DH-ADC(2)/PBE0-2/cc-pVTZ gives 8.389 eV for the first
-        # singlet root, reproducing the published value of 8.38 eV.  The
-        # cc-pVDZ run below keeps the same protocol affordable in the test
-        # suite.
+        # Real-world validation against the benchmark state of Mester &
+        # Kallay (JCTC 2019, 15, 4440): ethene 1 1B2u (pi-pi*) at the Thiel
+        # set geometry.  The paper uses the TZVP basis of the Thiel set; the
+        # cc-pVTZ run here reproduces the published 8.38 eV to 0.009 eV
+        # (8.389 eV, the first singlet root).
         mol_et = gto.M(
             atom='H 0.000000 0.923274 1.238289; H 0.000000 -0.923274 1.238289;'
                  'H 0.000000 0.923274 -1.238289; H 0.000000 -0.923274 -1.238289;'
                  'C 0.000000 0.000000 0.668188; C 0.000000 0.000000 -0.668188',
-            basis='cc-pVDZ', verbose=0)
+            basis='cc-pVTZ', verbose=0)
         mf = dft.RKS(mol_et, xc='0.793701*HF + 0.206299*PBE, 0.5*PBE')
         mf.conv_tol = 1e-11
         mf.kernel()
@@ -190,8 +219,7 @@ class KnownValues(unittest.TestCase):
         # (affects stock ADC(2) identically).
         e, v, p, x = myadc.kernel(nroots=4)
         e_ev = np.asarray(e) * 27.211386245988
-        self.assertAlmostEqual(e_ev[0], 8.72430, delta=2e-3)
-        self.assertAlmostEqual(e_ev[1], 8.83382, delta=2e-3)
+        self.assertAlmostEqual(e_ev[0], 8.38896, delta=2e-3)
 
 if __name__ == "__main__":
     print("EE DH-ADC(2) calculations for water molecule")

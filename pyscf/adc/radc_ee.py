@@ -771,12 +771,12 @@ def get_imds(adc, eris=None):
 
     if adc.dh:
         # DH-ADC(2) effective singles block (Mester & Kallay, JCTC 2019,
-        # 15, 4440, eq 17): replace the CIS part of the ADC(2) matrix by the
-        # TDA singles block of the double-hybrid functional (A^DH, eq 5) and
-        # scale the second-order correction A^[2] by alpha_C.
-        alpha_c = adc.get_alpha_c()
-        A_dh = get_a_dh(adc, eris)
-
+        # 15, 4440, eq 17): the CIS part of the ADC(2) matrix is replaced by
+        # the TDA singles block of the double-hybrid functional (A^DH, eq 5),
+        # which is applied as an operator (see get_vind_dh) so the dense grid
+        # matrix is never formed.  Only the second-order correction A^[2]
+        # (M_ab minus the CIS block) is kept here and scaled by alpha_C in
+        # matvec/get_diag.
         M_cis = np.zeros((ncore*nextern, ncore*nextern))
         np.fill_diagonal(M_cis, d_ai_a.transpose().reshape(-1))
         M_cis = M_cis.reshape(ncore,nextern,ncore,nextern).copy()
@@ -784,7 +784,7 @@ def get_imds(adc, eris=None):
         M_cis += 2 * einsum('LADI->IDLA', v_ceec, optimize = einsum_type).copy()
         M_cis = M_cis.reshape(n_singles, n_singles)
 
-        M_ab = A_dh + alpha_c * (M_ab - M_cis)
+        M_ab = M_ab - M_cis
 
     return M_ab
 
@@ -792,7 +792,9 @@ def get_imds(adc, eris=None):
 def get_a_dh(adc, eris=None):
     '''Singles (1p1h) block of the TDA matrix of the double-hybrid functional,
     i.e. A^DH of eq 5 of Mester & Kallay, JCTC 2019, 15, 4440, built with
-    pyscf's TDDFT machinery on the Kohn-Sham orbitals of the reference.'''
+    pyscf's TDDFT machinery on the Kohn-Sham orbitals of the reference.  This
+    explicit-matrix form is used as a reference in tests; the production dh
+    path applies A^DH as an operator (see get_vind_dh).'''
     if not adc.dh:
         raise NotImplementedError('get_a_dh is only defined for dh-adc(2)')
     from pyscf.tdscf import rhf as tdscf_rhf
@@ -800,6 +802,26 @@ def get_a_dh(adc, eris=None):
     A, _B = tdscf_rhf.get_ab(mf, frozen=adc.frozen)
     n_singles = adc._nocc * adc._nvir
     return np.asarray(A).reshape(n_singles, n_singles)
+
+
+def get_vind_dh(adc, eris=None):
+    '''Operator form of the TDA singles block A^DH (eq 5 of Mester & Kallay,
+    JCTC 2019, 15, 4440): returns (vind, hdiag) where vind(x) = A^DH @ x is
+    evaluated by pyscf's TDDFT response machinery on the Kohn-Sham orbitals,
+    so the dense singles matrix (and its grid integrals) is never formed.
+    hdiag is the bare orbital-energy diagonal (epsilon_a - epsilon_i) used by
+    TDDFT as the Davidson preconditioner.'''
+    if getattr(adc, '_vind_dh', None) is not None:
+        return adc._vind_dh, adc._hdiag_vind
+    from pyscf.tdscf import rhf as tdscf_rhf
+    mf = adc._scf
+    td = tdscf_rhf.TDA(mf)
+    td.frozen = adc.frozen
+    td.verbose = 0
+    vind, hdiag = tdscf_rhf._gen_tda_operation(td, singlet=True, wfnsym=None)
+    adc._vind_dh = vind
+    adc._hdiag_vind = hdiag
+    return vind, hdiag
 
 
 def get_diag(adc,M_ab=None,eris=None):
@@ -835,7 +857,13 @@ def get_diag(adc,M_ab=None,eris=None):
     D_ijab = (-d_ij.reshape(-1,1) + d_ab.reshape(-1)).reshape((nocc,nocc,nvir,nvir))
     diag[s2:f2] = D_ijab.reshape(-1)
 
-    diag[s1:f1] = np.diagonal(M_)
+    if adc.dh:
+        # M_ holds the A^[2] block only; the TDA singles block enters the
+        # preconditioner through its bare orbital-energy diagonal.
+        _vind, _hdiag = get_vind_dh(adc, eris)
+        diag[s1:f1] = _hdiag + adc.get_alpha_c() * np.diagonal(M_)
+    else:
+        diag[s1:f1] = np.diagonal(M_)
 
     return diag
 
@@ -908,7 +936,15 @@ def matvec(adc, M_ab=None, eris=None):
 
         s = np.zeros(dim)
 
-        s[s1:f1] = lib.einsum('ab,b->a',M_,r1, optimize = True)
+        if adc.dh:
+            # A^DH applied as an operator (TDDFT response machinery); M_
+            # holds the A^[2] block scaled by alpha_C (eq 17 of Mester &
+            # Kallay, JCTC 2019, 15, 4440).
+            vind_dh, _ = get_vind_dh(adc, eris)
+            s[s1:f1] = (vind_dh(Y).ravel()
+                        + adc.get_alpha_c() * lib.einsum('ab,b->a', M_, r1, optimize = True))
+        else:
+            s[s1:f1] = lib.einsum('ab,b->a',M_,r1, optimize = True)
 
         D_ijab = (-d_ij.reshape(-1,1) + d_ab.reshape(-1)).reshape((nocc,nocc,nvir,nvir))
         s[s2:f2] = (D_ijab.reshape(-1))*r[s2:f2]
@@ -1995,7 +2031,7 @@ class RADCEE(radc.RADC):
         'nocc', 'nvir', 'nmo', 'mol', 'transform_integrals',
         'with_df', 'dip_mom','spec_factor_print_tol', 'evec_print_tol',
         'compute_properties', 'approx_trans_moments', 'E', 'U', 'P', 'X',
-        '_make_rdm1', 'frozen', 'mo_occ', 'dh', 'alpha_c'
+        '_make_rdm1', 'frozen', 'mo_occ', 'dh', 'alpha_c', '_vind_dh', '_hdiag_vind'
     }
 
     def __init__(self, adc):
