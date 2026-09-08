@@ -318,6 +318,20 @@ class KohnShamDFT:
             Drop grids if their contribution to total electrons smaller than
             this cutoff value.  Default is 1e-7.
 
+        second_grids : Grids object
+            Secondary grids for SCF linear response functions (CPHF, TDDFT,
+            second-order SCF solvers, stability analysis, etc). If set, it is
+            used by ``mf.gen_response`` in place of ``self.grids``. A coarser
+            grid is often sufficiently accurate for the occupied-virtual
+            orbital pair transitions in linear response calculations.
+            Default is None (response functions use ``self.grids``).
+
+            >>> mol = gto.M(atom='H 0 0 0; H 0 0 1.2')
+            >>> mf = dft.RKS(mol).run()
+            >>> mf.second_grids = dft.gen_grid.Grids(mol)
+            >>> mf.second_grids.prune = dft.gen_grid.sg1_prune
+            >>> mf.second_grids.atom_grid = (50, 194)
+
     Examples:
 
     >>> mol = gto.M(atom='O 0 0 0; H 0 0 1; H 0 1 0', basis='ccpvdz', verbose=0)
@@ -327,7 +341,8 @@ class KohnShamDFT:
     -76.415443079840458
     '''
 
-    _keys = {'xc', 'nlc', 'grids', 'disp', 'nlcgrids', 'small_rho_cutoff'}
+    _keys = {'xc', 'nlc', 'grids', 'disp', 'nlcgrids', 'small_rho_cutoff',
+             'second_grids'}
 
     # Use rho to filter grids
     small_rho_cutoff = getattr(__config__, 'dft_rks_RKS_small_rho_cutoff', 0)
@@ -343,6 +358,7 @@ class KohnShamDFT:
         self.nlcgrids = gen_grid.Grids(self.mol)
         self.nlcgrids.level = getattr(
             __config__, 'dft_rks_RKS_nlcgrids_level', self.nlcgrids.level)
+        self.second_grids = None
 ##################################################
 # don't modify the following attributes, they are not input options
         self._numint = numint.NumInt()
@@ -377,6 +393,10 @@ class KohnShamDFT:
             self.nlcgrids.dump_flags(verbose)
 
         log.info('small_rho_cutoff = %g', self.small_rho_cutoff)
+
+        if self.second_grids is not None:
+            log.info('** Following is secondary grids for response functions **')
+            self.second_grids.dump_flags(verbose)
         return self
 
     define_xc_ = define_xc_
@@ -485,6 +505,8 @@ class KohnShamDFT:
         hf.SCF.reset(self, mol)
         self.grids.reset(mol)
         self.nlcgrids.reset(mol)
+        if self.second_grids is not None:
+            self.second_grids.reset(mol)
         return self
 
     def check_sanity(self):

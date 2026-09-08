@@ -127,6 +127,28 @@ class KnownValues(unittest.TestCase):
         #FIXME: errors seems too big
         self.assertAlmostEqual(abs(hess[0,:,2] - (e1-e2)/2e-4*lib.param.BOHR).max(), 0, 3)
 
+    def test_second_grids_hess(self):
+        mf = dft.RKS(mol)
+        mf.xc = 'b3lyp5'
+        mf.conv_tol = 1e-14
+        mf.kernel()
+        hess = mf.Hessian().kernel()
+
+        # second_grids == grids reproduces the default hessian
+        mf.second_grids = mf.grids
+        hess1 = mf.Hessian().kernel()
+        self.assertAlmostEqual(abs(hess - hess1).max(), 0, 7)
+        mf.second_grids = None
+
+        # A coarse (SG1) secondary grid changes the CPHF response only
+        second_grids = dft.gen_grid.Grids(mol)
+        second_grids.prune = dft.gen_grid.sg1_prune
+        second_grids.atom_grid = (50, 194)
+        mf.second_grids = second_grids
+        hess2 = mf.Hessian().kernel()
+        self.assertAlmostEqual(abs(hess - hess2).max(), 0, 4)
+        mf.second_grids = None
+
     def test_finite_diff_b3lyp_hess(self):
         mf = dft.RKS(mol)
         mf.conv_tol = 1e-14
