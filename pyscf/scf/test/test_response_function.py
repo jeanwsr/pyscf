@@ -22,9 +22,7 @@ from pyscf.scf import _response_functions
 
 def make_second_grids(mol):
     '''A coarse (SG1) secondary grid for response functions'''
-    second_grids = dft.gen_grid.Grids(mol)
-    second_grids.prune = dft.gen_grid.sg1_prune
-    second_grids.atom_grid = (50, 194)
+    second_grids = dft.gen_grid.sg1_grids(mol)
     second_grids.build(with_non0tab=True)
     return second_grids
 
@@ -56,6 +54,8 @@ class KnownValues(unittest.TestCase):
 
         # A coarse secondary grid gives very similar excitations
         second_grids = make_second_grids(mol)
+        self.assertEqual(second_grids.prune, dft.gen_grid.sg1_prune)
+        self.assertEqual(second_grids.atom_grid, (50, 194))
         self.assertTrue(second_grids.coords.shape[0] < mf.grids.coords.shape[0])
         mf.second_grids = second_grids
         td2 = mf.TDA()

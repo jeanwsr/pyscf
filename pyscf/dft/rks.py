@@ -328,9 +328,7 @@ class KohnShamDFT:
 
             >>> mol = gto.M(atom='H 0 0 0; H 0 0 1.2')
             >>> mf = dft.RKS(mol).run()
-            >>> mf.second_grids = dft.gen_grid.Grids(mol)
-            >>> mf.second_grids.prune = dft.gen_grid.sg1_prune
-            >>> mf.second_grids.atom_grid = (50, 194)
+            >>> mf.second_grids = dft.gen_grid.sg1_grids(mol)
 
     Examples:
 
