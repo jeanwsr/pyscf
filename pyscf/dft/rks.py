@@ -325,10 +325,13 @@ class KohnShamDFT:
             grid is often sufficiently accurate for the occupied-virtual
             orbital pair transitions in linear response calculations.
             Default is None (response functions use ``self.grids``).
+            Easiest to assign with the helper method
+            ``mf.set_second_grids`` (level 1 by default; 'sg1' for the SG1
+            standard grid, Z <= 18 only).
 
             >>> mol = gto.M(atom='H 0 0 0; H 0 0 1.2')
             >>> mf = dft.RKS(mol).run()
-            >>> mf.second_grids = dft.gen_grid.sg1_grids(mol)
+            >>> mf.set_second_grids(1)
 
     Examples:
 
@@ -505,6 +508,43 @@ class KohnShamDFT:
         self.nlcgrids.reset(mol)
         if self.second_grids is not None:
             self.second_grids.reset(mol)
+        return self
+
+    def set_second_grids(self, level=1):
+        '''Assign the secondary grids for SCF linear response functions.
+
+        The secondary grids are used to evaluate the XC response kernels
+        of linear response properties (TDDFT, CPHF, Hessian, second-order
+        SCF solver, etc.). A coarser grid than the ground-state default
+        (level 3) is usually sufficiently accurate for the occupied-virtual
+        orbital pair transitions.
+
+        Args:
+            level : int or str or gen_grid.Grids
+                An int builds a gen_grid.Grids of the given level.
+                Useful values are 1 (recommended, supported for all
+                elements) and 2 (finer, closer to the ground-state grid).
+                'sg1' builds the SG1 standard grid (prune=sg1_prune,
+                atom_grid=(50,194)); SG1 radii are tabulated for Z <= 18
+                only. Other level numbers are allowed but generally do not
+                make much sense. A pre-built Grids object is used as-is.
+
+        Examples:
+
+        >>> mol = gto.M(atom='H 0 0 0; H 0 0 1.2')
+        >>> mf = dft.RKS(mol).run()
+        >>> mf.set_second_grids(1)   # or mf.set_second_grids('sg1')
+        '''
+        if isinstance(level, str):
+            if level.lower() != 'sg1':
+                raise ValueError(f'Unknown second_grids scheme {level!r}.')
+            self.second_grids = gen_grid.sg1_grids(self.mol)
+        elif isinstance(level, gen_grid.Grids):
+            self.second_grids = level
+        else:
+            grids = gen_grid.Grids(self.mol)
+            grids.level = int(level)
+            self.second_grids = grids
         return self
 
     def check_sanity(self):

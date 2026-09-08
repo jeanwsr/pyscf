@@ -141,8 +141,7 @@ class KnownValues(unittest.TestCase):
         mf.second_grids = None
 
         # A coarse (SG1) secondary grid changes the CPHF response only
-        second_grids = dft.gen_grid.sg1_grids(mol)
-        mf.second_grids = second_grids
+        mf.set_second_grids(1)
         hess2 = mf.Hessian().kernel()
         self.assertAlmostEqual(abs(hess - hess2).max(), 0, 4)
         mf.second_grids = None

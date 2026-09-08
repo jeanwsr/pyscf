@@ -20,10 +20,6 @@ from pyscf import lib
 from pyscf import dft, gto
 from pyscf.scf import _response_functions
 
-def make_second_grids(mol):
-    '''A coarse (SG1) secondary grid for response functions'''
-    return dft.gen_grid.sg1_grids(mol)
-
 class KnownValues(unittest.TestCase):
     def test_rks_second_grids(self):
         mol = gto.M(
@@ -50,16 +46,23 @@ class KnownValues(unittest.TestCase):
         self.assertAlmostEqual(abs(td1.kernel()[0] - e_ref).max(), 0, 9)
         mf.second_grids = None
 
-        # A coarse secondary grid gives very similar excitations
-        second_grids = make_second_grids(mol)
-        self.assertEqual(second_grids.prune, dft.gen_grid.sg1_prune)
-        self.assertEqual(second_grids.atom_grid, (50, 194))
-        mf.second_grids = second_grids
+        # A level-1 secondary grid gives very similar excitations
+        mf.set_second_grids(1)
         td2 = mf.TDA()
         td2.nstates = 3
         e2 = td2.kernel()[0]
-        self.assertTrue(second_grids.coords.shape[0] < mf.grids.coords.shape[0])
+        self.assertTrue(mf.second_grids.coords.shape[0] < mf.grids.coords.shape[0])
         self.assertAlmostEqual(abs(e2 - e_ref).max(), 0, 4)
+        mf.second_grids = None
+
+        # The sg1 scheme builds an SG1 grid
+        mf.set_second_grids('sg1')
+        self.assertEqual(mf.second_grids.prune, dft.gen_grid.sg1_prune)
+        self.assertEqual(mf.second_grids.atom_grid, (50, 194))
+        td3 = mf.TDA()
+        td3.nstates = 3
+        e3 = td3.kernel()[0]
+        self.assertAlmostEqual(abs(e3 - e_ref).max(), 0, 4)
         mf.second_grids = None
 
     def test_uks_second_grids_vind(self):
@@ -73,8 +76,8 @@ class KnownValues(unittest.TestCase):
         np.random.seed(1)
         dm1 = np.random.rand(2, nao, nao)
 
-        second_grids = make_second_grids(mol)
-        mf.second_grids = second_grids
+        mf.set_second_grids(1)
+        second_grids = mf.second_grids
         v1 = mf.gen_response()(dm1)
         mf.second_grids = None
         # The grids kwarg of gen_response bypasses mf.second_grids
