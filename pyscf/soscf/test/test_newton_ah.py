@@ -236,7 +236,6 @@ class KnownValues(unittest.TestCase):
         mf.xc = 'b3lyp'
         eref = mf.kernel()
         second_grids = dft.gen_grid.sg1_grids(h2o_z0)
-        second_grids.build(with_non0tab=True)
         mf.second_grids = second_grids
         mf.max_cycle = 1
         mf.conv_check = False

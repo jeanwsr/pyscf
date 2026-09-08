@@ -22,9 +22,7 @@ from pyscf.scf import _response_functions
 
 def make_second_grids(mol):
     '''A coarse (SG1) secondary grid for response functions'''
-    second_grids = dft.gen_grid.sg1_grids(mol)
-    second_grids.build(with_non0tab=True)
-    return second_grids
+    return dft.gen_grid.sg1_grids(mol)
 
 class KnownValues(unittest.TestCase):
     def test_rks_second_grids(self):
@@ -56,11 +54,11 @@ class KnownValues(unittest.TestCase):
         second_grids = make_second_grids(mol)
         self.assertEqual(second_grids.prune, dft.gen_grid.sg1_prune)
         self.assertEqual(second_grids.atom_grid, (50, 194))
-        self.assertTrue(second_grids.coords.shape[0] < mf.grids.coords.shape[0])
         mf.second_grids = second_grids
         td2 = mf.TDA()
         td2.nstates = 3
         e2 = td2.kernel()[0]
+        self.assertTrue(second_grids.coords.shape[0] < mf.grids.coords.shape[0])
         self.assertAlmostEqual(abs(e2 - e_ref).max(), 0, 4)
         mf.second_grids = None
 
