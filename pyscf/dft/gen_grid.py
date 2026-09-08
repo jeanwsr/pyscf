@@ -747,8 +747,6 @@ class Grids(lib.StreamObject):
 def sg1_grids(mol, atom_grid=(50, 194)):
     '''SG1 grids for SCF linear response functions (cf. pyscf#2520).
 
-    A coarser SG1 standard grid which is often sufficiently accurate for the
-    occupied-virtual orbital pair transitions of linear response functions.
     It can be assigned to mf.second_grids:
 
     >>> mf.second_grids = dft.gen_grid.sg1_grids(mol)

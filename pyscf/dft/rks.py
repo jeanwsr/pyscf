@@ -322,12 +322,10 @@ class KohnShamDFT:
             Secondary grids for SCF linear response functions (CPHF, TDDFT,
             second-order SCF solvers, stability analysis, etc). If set, it is
             used by ``mf.gen_response`` in place of ``self.grids``. A coarser
-            grid is often sufficiently accurate for the occupied-virtual
-            orbital pair transitions in linear response calculations.
+            grid like level 1 is often sufficiently accurate.
             Default is None (response functions use ``self.grids``).
-            Easiest to assign with the helper method
-            ``mf.set_second_grids`` (level 1 by default; 'sg1' for the SG1
-            standard grid, Z <= 18 only).
+            Easy to assign with the helper method ``mf.set_second_grids``
+            (level 1 by default; 'sg1' for the SG1 standard grid).
 
             >>> mol = gto.M(atom='H 0 0 0; H 0 0 1.2')
             >>> mf = dft.RKS(mol).run()
@@ -396,7 +394,7 @@ class KohnShamDFT:
         log.info('small_rho_cutoff = %g', self.small_rho_cutoff)
 
         if self.second_grids is not None:
-            log.info('** Following is secondary grids for response functions **')
+            log.info('** Secondary grids for response functions **')
             self.second_grids.dump_flags(verbose)
         return self
 
@@ -516,8 +514,7 @@ class KohnShamDFT:
         The secondary grids are used to evaluate the XC response kernels
         of linear response properties (TDDFT, CPHF, Hessian, second-order
         SCF solver, etc.). A coarser grid than the ground-state default
-        (level 3) is usually sufficiently accurate for the occupied-virtual
-        orbital pair transitions.
+        (level 3) is usually sufficiently accurate.
 
         Args:
             level : int or str or gen_grid.Grids
