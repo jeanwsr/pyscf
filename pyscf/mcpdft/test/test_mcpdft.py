@@ -779,7 +779,7 @@ class KnownValues(unittest.TestCase):
         self.assertAlmostEqual (mc.e_tot, e_ref, 6)
 
     def test_state_specific_casci(self):
-        # GH#3414: mc.state_specific_(n) must yield a scalar e_tot equal to
+        # issue #3414: mc.state_specific_(n) must yield a scalar e_tot equal to
         # the n-th root of a plain multi-root CASCI-PDFT calculation.
         mol = gto.M(atom="H 0 0 0; H 0 0 1.5; H 0 0 3.0; H 0 0 4.5",
                     basis="sto3g", verbose=0, output="/dev/null")
@@ -798,7 +798,7 @@ class KnownValues(unittest.TestCase):
                 self.assertAlmostEqual(mc.e_tot, e_ref[state], delta=1e-9)
 
     def test_state_specific_casscf(self):
-        # GH#3414: state-specific CASSCF-PDFT must equal the state-averaged
+        # issue #3414: state-specific CASSCF-PDFT must equal the state-averaged
         # PDFT energy with the weight concentrated on that one state.
         mol = gto.M(atom="H 0 0 0; H 0 0 1.5; H 0 0 3.0; H 0 0 4.5",
                     basis="sto3g", verbose=0, output="/dev/null")
@@ -816,7 +816,7 @@ class KnownValues(unittest.TestCase):
 
     @unittest.skipUnless(_HAS_DMRG, "dmrgscf / block2 not available")
     def test_state_specific_dmrg(self):
-        # GH#3414: for a state-specific DMRG, mc.ci is a state index (int).
+        # issue #3414: for a state-specific DMRG, mc.ci is a state index (int).
         # The DMRG RDM of the *target* state must be used, not the ground state.
         mol = gto.M(atom="H 0 0 0; H 0 0 1.5; H 0 0 3.0; H 0 0 4.5",
                     basis="sto3g", verbose=0, output="/dev/null")
