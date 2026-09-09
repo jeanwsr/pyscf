@@ -31,8 +31,6 @@
 # trying to test the API here; we need tight convergence and grids
 # to reproduce well when OMP is on.
 import h5py
-import os
-import shutil
 import numpy as np
 from pyscf import gto, scf, mcscf, lib, fci, dft
 from pyscf import mcpdft
@@ -40,11 +38,9 @@ import unittest
 
 try:
     from pyscf import dmrgscf
-    from pyscf.dmrgscf import dmrgci, settings as dmrg_settings
+    from pyscf.dmrgscf import settings as dmrg_settings
     _BLOCKEXE = dmrg_settings.BLOCKEXE
-    _HAS_DMRG = _BLOCKEXE is not None and (
-        os.path.isfile(_BLOCKEXE) or
-        (os.path.sep not in _BLOCKEXE and shutil.which(_BLOCKEXE) is not None))
+    _HAS_DMRG = _BLOCKEXE is not None
 except Exception:
     _HAS_DMRG = False
 
@@ -782,7 +778,7 @@ class KnownValues(unittest.TestCase):
         e_ref = -0.74702903
         self.assertAlmostEqual (mc.e_tot, e_ref, 6)
 
-    def test_state_specific(self):
+    def test_state_specific_casci(self):
         # GH#3414: mc.state_specific_(n) must yield a scalar e_tot equal to
         # the n-th root of a plain multi-root CASCI-PDFT calculation.
         mol = gto.M(atom="H 0 0 0; H 0 0 1.5; H 0 0 3.0; H 0 0 4.5",
