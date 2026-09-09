@@ -801,6 +801,23 @@ class KnownValues(unittest.TestCase):
                 self.assertFalse(isinstance(mc.e_tot, (list, tuple)))
                 self.assertAlmostEqual(mc.e_tot, e_ref[state], delta=1e-9)
 
+    def test_state_specific_casscf(self):
+        # GH#3414: state-specific CASSCF-PDFT must equal the state-averaged
+        # PDFT energy with the weight concentrated on that one state.
+        mol = gto.M(atom="H 0 0 0; H 0 0 1.5; H 0 0 3.0; H 0 0 4.5",
+                    basis="sto3g", verbose=0, output="/dev/null")
+        mf = scf.RHF(mol).run(conv_tol=1e-12)
+
+        mc_ss = mcpdft.CASSCF(mf, "tPBE", 4, 4).state_specific_(1)
+        mc_ss.conv_tol = 1e-8
+        mc_ss.kernel()
+        mc_sa = mcpdft.CASSCF(mf, "tPBE", 4, 4).state_average_((0.0, 1.0))
+        mc_sa.conv_tol = 1e-8
+        mc_sa.kernel()
+
+        self.assertFalse(isinstance(mc_ss.e_tot, (list, tuple)))
+        self.assertAlmostEqual(mc_ss.e_tot, mc_sa.e_states[1], delta=1e-8)
+
     @unittest.skipUnless(_HAS_DMRG, "dmrgscf / block2 not available")
     def test_state_specific_dmrg(self):
         # GH#3414: for a state-specific DMRG, mc.ci is a state index (int).
