@@ -4,18 +4,14 @@ name: CI CABS stress
 # we cannot exercise locally (Windows OpenBLAS, macOS Accelerate). Builds
 # pyscf the same way as the regular CI jobs, then runs the test in fresh
 # processes N times; each iteration is an independent draw of the rounding
-# lottery. Optional thread jitter varies BLAS reduction orders across
-# iterations.
+# lottery. Thread jitter varies BLAS reduction orders across iterations.
+#
+# Triggered on every push to this dedicated branch. Tweak STRESS_REPEATS or
+# the tested paths in a commit and push to launch a new stress run.
 on:
-  workflow_dispatch:
-    inputs:
-      repeats:
-        description: 'pytest repetitions per OS'
-        default: '20'
-      thread_jitter:
-        description: 'randomize OMP/BLAS threads per iteration'
-        default: false
-        type: boolean
+  push:
+    branches:
+      - ci-cabs-stress
 
 permissions:
   contents: read
@@ -23,6 +19,10 @@ permissions:
 concurrency:
   group: ci-cabs-stress-${{ github.ref }}
   cancel-in-progress: true
+
+env:
+  STRESS_REPEATS: '30'
+  STRESS_JITTER: '1'
 
 jobs:
   macos:
@@ -41,8 +41,7 @@ jobs:
       - name: Stress pyscf/mp/test/test_cabs.py
         run: >-
           ./.github/workflows/ci_cabs_stress/stress_loop.sh
-          "${{ inputs.repeats }}"
-          ${{ inputs.thread_jitter && '1' || '0' }}
+          "$STRESS_REPEATS" "$STRESS_JITTER"
           pyscf/mp/test/test_cabs.py
 
   windows:
@@ -79,5 +78,5 @@ jobs:
       - name: Stress installed wheel
         run: >-
           ./.github/workflows/ci_cabs_stress/stress_installed_wheel.ps1
-          -Repeats ${{ inputs.repeats }}
-          -ThreadJitter:${{ inputs.thread_jitter }}
+          -Repeats $env:STRESS_REPEATS
+          -ThreadJitter:($env:STRESS_JITTER -eq '1')
